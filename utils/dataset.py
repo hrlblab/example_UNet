@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import Dataset
 import logging
 from PIL import Image
-
+import imgaug.augmenters as iaa
 
 class BasicDataset(Dataset):
     def __init__(self, imgs_dir, masks_dir, scale=1):
