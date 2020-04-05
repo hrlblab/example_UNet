@@ -72,7 +72,7 @@ dir_img = 'data/imgs/'
 dir_mask = 'data/masks/'
 dir_valimg = 'data/imgs_val/'
 dir_valmask = 'data/masks_val/'
-dir_checkpoint = 'checkpoints/'
+dir_checkpoint = 'checkpoints2/'
 
 def train_net(net,
               device,
@@ -83,8 +83,8 @@ def train_net(net,
               save_cp=True,
               img_scale=1):
 
-    dataset = BasicDataset(dir_img, dir_mask, img_scale)
-    dataval = BasicDataset(dir_valimg, dir_valmask, img_scale)
+    dataset = BasicDataset(dir_img, dir_mask, img_scale,'train')
+    dataval = BasicDataset(dir_valimg, dir_valmask, img_scale,'val')
 
     # yuankai change it to automated
     # direct sizes of each training. 
@@ -167,7 +167,7 @@ def train_net(net,
                 pbar.update(imgs.shape[0])
 
                 global_step += 1
-                if global_step % (len(dataset) // (10 * batch_size)) == 0:
+                if global_step % (len(dataset) // (4 * batch_size)) == 0:
                     for tag, value in net.named_parameters():
                         tag = tag.replace('.', '/')
                         writer.add_histogram('weights/' + tag, value.data.cpu().numpy(), global_step)
@@ -213,7 +213,7 @@ def get_args():
                         help='Number of epochs', dest='epochs')
     parser.add_argument('-b', '--batch-size', metavar='B', type=int, nargs='?', default=4,
                         help='Batch size', dest='batchsize')
-    parser.add_argument('-l', '--learning-rate', metavar='LR', type=float, nargs='?', default=0.001,
+    parser.add_argument('-l', '--learning-rate', metavar='LR', type=float, nargs='?', default=0.0001,
                         help='Learning rate', dest='lr')
     parser.add_argument('-f', '--load', dest='load', type=str, default=False,
                         help='Load model from a .pth file')

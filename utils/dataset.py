@@ -9,10 +9,11 @@ from PIL import Image
 import imgaug.augmenters as iaa
 
 class BasicDataset(Dataset):
-    def __init__(self, imgs_dir, masks_dir, scale=1):
+    def __init__(self, imgs_dir, masks_dir, scale=1, split='train'):
         self.imgs_dir = imgs_dir
         self.masks_dir = masks_dir
         self.scale = scale
+        self.split = split
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
 
         self.ids = [splitext(file)[0] for file in listdir(imgs_dir)
@@ -41,6 +42,41 @@ class BasicDataset(Dataset):
 
         return img_trans
 
+    def augmentation(self, pil_img, pil_mask):
+        input_img = np.expand_dims(pil_img, axis=0)
+        input_mask = np.expand_dims(pil_mask, axis=0)
+        input_mask = np.expand_dims(input_mask, axis=3)
+
+        if self.split == 'train':
+            seq = iaa.Sequential([
+                iaa.ChannelShuffle(0.35),
+                # iaa.Cutout(nb_iterations=(1, 5), size=0.1, squared=False, fill_mode="constant", cval=0),
+                # iaa.CoarseDropout((0.0, 0.05), size_percent=(0.02, 0.25)),
+                iaa.MultiplyAndAddToBrightness(mul=(0.5, 1.5), add=(-30, 30)),
+                # iaa.MultiplyHueAndSaturation((0.5, 1.5), per_channel=True),
+                # iaa.GammaContrast((0.5, 2.0)),
+                iaa.Affine(translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)}),
+                iaa.Affine(rotate=(-180, 180)),
+                iaa.Affine(shear=(-16, 16)),
+                iaa.Fliplr(0.5),
+                iaa.GaussianBlur(sigma=(0, 3.0))
+            ])
+
+            images_aug, segmaps_aug = seq(images=input_img, segmentation_maps=input_mask)
+
+            # if we would like to see the data augmentation
+            # segmaps_aug = np.concatenate((segmaps_aug,segmaps_aug,segmaps_aug), 3)
+            # seq.show_grid([images_aug[0], segmaps_aug[0]*255], cols=16, rows=8)
+
+            output_img = np.transpose(images_aug[0], (2, 0, 1))
+            output_mask = np.transpose(segmaps_aug[0], (2, 0, 1))
+
+        else:
+            output_img = np.transpose(input_img[0], (2, 0, 1))
+            output_mask = np.transpose(input_mask[0], (2, 0, 1))
+
+        return output_img, output_mask
+
     def __getitem__(self, i):
         idx = self.ids[i]
         mask_file = glob(self.masks_dir + idx + '*')
@@ -62,8 +98,15 @@ class BasicDataset(Dataset):
         assert img.size == mask.size, \
             f'Image and mask {idx} should be the same size, but are {img.size} and {mask.size}'
 
-        img = self.preprocess(img, self.scale)
-        mask = self.preprocess(mask, self.scale)
+        #img = self.preprocess(img, self.scale)
+        #mask = self.preprocess(mask, self.scale)
+
+        img = np.array(img)
+        mask = np.array(mask)
+        [img,mask] = self.augmentation(img, mask)
+
+        if img.max() > 1:
+            img = img / 255
 
         #yuankai add
         mask = mask[0,:]
