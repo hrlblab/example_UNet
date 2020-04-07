@@ -72,6 +72,13 @@ dir_img = 'data/imgs/'
 dir_mask = 'data/masks/'
 dir_valimg = 'data/imgs_val/'
 dir_valmask = 'data/masks_val/'
+dir_testimg = 'data/imgs_test/'
+dir_testmask = 'data/masks_test/'
+dir_externaltestimg = 'data/imgs_external_test/'
+dir_externaltestmask = 'data/masks_external_test/'
+
+
+
 dir_checkpoint = 'checkpoints2/'
 
 def train_net(net,
@@ -85,14 +92,18 @@ def train_net(net,
 
     dataset = BasicDataset(dir_img, dir_mask, img_scale,'train')
     dataval = BasicDataset(dir_valimg, dir_valmask, img_scale,'val')
+    datatest = BasicDataset(dir_valimg, dir_valmask, img_scale, 'test')
+    dataexternaltest = BasicDataset(dir_valimg, dir_valmask, img_scale, 'test')
 
     # yuankai change it to automated
     # direct sizes of each training. 
     n_val = dataval.__len__()
     n_train = dataset.__len__()
 
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
-    val_loader = DataLoader(dataval, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True, drop_last=True)
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(dataval, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, drop_last=True)
+    test_loader = DataLoader(datatest, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, drop_last=True)
+    external_test_loader = DataLoader(dataexternaltest, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, drop_last=True)
 
     writer = SummaryWriter(comment=f'LR_{lr}_BS_{batch_size}_SCALE_{img_scale}')
     global_step = 0
@@ -173,6 +184,8 @@ def train_net(net,
                         writer.add_histogram('weights/' + tag, value.data.cpu().numpy(), global_step)
                         writer.add_histogram('grads/' + tag, value.grad.data.cpu().numpy(), global_step)
                     val_score = eval_net(net, val_loader, device)
+                    test_score = eval_net(net, test_loader, device)
+                    external_test_score = eval_net(net, external_test_loader, device)
                     # scheduler.step(val_score)
 
                     writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], global_step)
@@ -183,6 +196,10 @@ def train_net(net,
                     else:
                         logging.info('Validation Dice Coeff: {}'.format(val_score))
                         writer.add_scalar('Dice/test', val_score, global_step)
+                        logging.info('Internal Testing Dice Coeff: {}'.format(test_score))
+                        writer.add_scalar('Loss/test', test_score, global_step)
+                        logging.info('External Testing Coeff: {}'.format(external_test_score))
+                        writer.add_scalar('Loss/test', external_test_score, global_step)
 
                     writer.add_images('images', imgs, global_step)
                     if net.n_classes == 1:
