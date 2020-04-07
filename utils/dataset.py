@@ -96,6 +96,13 @@ class BasicDataset(Dataset):
         mask = Image.open(mask_file[0]).convert('L')
         img = Image.open(img_file[0])
 
+        if self.scale < 1:
+            w, h = img.size
+            newW, newH = int(self.scale * w), int(self.scale * h)
+            assert newW > 0 and newH > 0, 'Scale is too small'
+            img = img.resize((newW, newH))
+            mask = mask.resize((newW, newH))
+
         #yuankai add
 
         mask = np.array(mask)
