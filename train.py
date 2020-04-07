@@ -92,8 +92,8 @@ def train_net(net,
 
     dataset = BasicDataset(dir_img, dir_mask, img_scale,'train')
     dataval = BasicDataset(dir_valimg, dir_valmask, img_scale,'val')
-    datatest = BasicDataset(dir_valimg, dir_valmask, img_scale, 'test')
-    dataexternaltest = BasicDataset(dir_valimg, dir_valmask, img_scale, 'test')
+    datatest = BasicDataset(dir_testimg, dir_testmask, img_scale, 'test')
+    dataexternaltest = BasicDataset(dir_externaltestimg, dir_externaltestmask, img_scale, 'test')
 
     # yuankai change it to automated
     # direct sizes of each training. 
@@ -177,38 +177,33 @@ def train_net(net,
 
                 pbar.update(imgs.shape[0])
 
-                global_step += 1
-                if global_step % (len(dataset) // (4 * batch_size)) == 0:
-                    for tag, value in net.named_parameters():
-                        tag = tag.replace('.', '/')
-                        writer.add_histogram('weights/' + tag, value.data.cpu().numpy(), global_step)
-                        writer.add_histogram('grads/' + tag, value.grad.data.cpu().numpy(), global_step)
-                    val_score = eval_net(net, val_loader, device)
-                    test_score = eval_net(net, test_loader, device)
-                    external_test_score = eval_net(net, external_test_loader, device)
-                    # scheduler.step(val_score)
+        for tag, value in net.named_parameters():
+            tag = tag.replace('.', '/')
+            writer.add_histogram('weights/' + tag, value.data.cpu().numpy(), global_step)
+            writer.add_histogram('grads/' + tag, value.grad.data.cpu().numpy(), global_step)
+        val_score = eval_net(net, val_loader, device)
+        test_score = eval_net(net, test_loader, device)
+        external_test_score = eval_net(net, external_test_loader, device)
+        # scheduler.step(val_score)
 
-                    writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], global_step)
+        writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], global_step)
 
-                    if net.n_classes > 1:
-                        logging.info('Validation Dice Coeff: {}'.format(val_score))
-                        writer.add_scalar('Loss/test', val_score, global_step)
-                    else:
-                        logging.info('Validation Dice Coeff: {}'.format(val_score))
-                        writer.add_scalar('Dice/test', val_score, global_step)
-                        logging.info('Internal Testing Dice Coeff: {}'.format(test_score))
-                        writer.add_scalar('Loss/test', test_score, global_step)
-                        logging.info('External Testing Coeff: {}'.format(external_test_score))
-                        writer.add_scalar('Loss/test', external_test_score, global_step)
+        logging.info('Finish Epoch %d/%d'% (epoch,epochs))
+        logging.info('Validation Dice Coeff: {}'.format(val_score))
+        writer.add_scalar('Dice/test', val_score, global_step)
+        logging.info('Internal Testing Dice Coeff: {}'.format(test_score))
+        writer.add_scalar('Loss/test', test_score, global_step)
+        logging.info('External Testing Dice Coeff: {}'.format(external_test_score))
+        writer.add_scalar('Loss/test', external_test_score, global_step)
 
-                    writer.add_images('images', imgs, global_step)
-                    if net.n_classes == 1:
-                        writer.add_images('masks/true', true_masks, global_step)
-                        writer.add_images('masks/pred', torch.sigmoid(masks_pred) > 0.5, global_step)
-                    else:
-                        writer.add_images('masks/true', true_masks.unsqueeze(1), global_step)
-                        writer.add_images('masks/pred', masks_pred.max(dim=1)[1].unsqueeze(1), global_step)
-                        # writer.add_images('masks/pred', torch.sigmoid(masks_pred) > 0.5, global_step)
+        writer.add_images('images', imgs, global_step)
+        if net.n_classes == 1:
+            writer.add_images('masks/true', true_masks, global_step)
+            writer.add_images('masks/pred', torch.sigmoid(masks_pred) > 0.5, global_step)
+        else:
+            writer.add_images('masks/true', true_masks.unsqueeze(1), global_step)
+            writer.add_images('masks/pred', masks_pred.max(dim=1)[1].unsqueeze(1), global_step)
+            # writer.add_images('masks/pred', torch.sigmoid(masks_pred) > 0.5, global_step)
 
         if save_cp and (epoch + 1) % 10 == 0:
             try:
@@ -234,7 +229,7 @@ def get_args():
                         help='Learning rate', dest='lr')
     parser.add_argument('-f', '--load', dest='load', type=str, default=False,
                         help='Load model from a .pth file')
-    parser.add_argument('-s', '--scale', dest='scale', type=float, default=1,
+    parser.add_argument('-s', '--scale', dest='scale', type=float, default=0.5,
                         help='Downscaling factor of the images')
     parser.add_argument('-v', '--validation', dest='val', type=float, default=10.0,
                         help='Percent of the data that is used as validation (0-100)')
