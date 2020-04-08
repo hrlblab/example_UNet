@@ -2,17 +2,31 @@ import argparse
 import logging
 import os
 import sys
-
 import numpy as np
 import torch
 import torch.nn as nn
 from torch import optim
 from tqdm import tqdm
-
 from eval import eval_net
 from unet import UNet
-
 import torch.nn.functional as F
+import yaml
+from easydict import EasyDict as edict
+#yuankai change to tensorboard
+from tensorboardX import SummaryWriter
+from utils.dataset import BasicDataset
+from torch.utils.data import DataLoader, random_split
+from pandas import DataFrame
+import pandas as pd
+
+def cfg_from_file(filename):
+    """Load a config file and merge it into the default options."""
+
+    with open(filename, 'r') as f:  # not valid grammar in Python 2.5
+        yaml_cfg = edict(yaml.load(f), Loader=yaml.FullLoader)
+    return yaml_cfg
+
+
 def cross_entropy2d(input, target, weight=None, size_average=True):
     # input: (n, c, h, w), target: (n, h, w)
     n, c, h, w = input.size()
@@ -61,39 +75,47 @@ def dice_loss(input, target):
 
     return dice_total
 
+def convert_result_to_csv(values, csv_file_name):
+    if not os.path.exists(csv_file_name):
+        df = DataFrame(columns=['epoch', 'val_dice', 'test_dice', 'external_test_dice'])
+        df_i = 0
+    else:
+        df = pd.read_csv(csv_file_name)
+        df_i = len(df)
+    df.loc[df_i] = [values[0], values[1], values[2], values[3]]
+    df.to_csv(csv_file_name, index=False)
 
-
-#yuankai change to tensorboard
-from tensorboardX import SummaryWriter
-from utils.dataset import BasicDataset
-from torch.utils.data import DataLoader, random_split
-
-dir_img = 'data/imgs/'
-dir_mask = 'data/masks/'
-dir_valimg = 'data/imgs_val/'
-dir_valmask = 'data/masks_val/'
-dir_testimg = 'data/imgs_test/'
-dir_testmask = 'data/masks_test/'
-dir_externaltestimg = 'data/imgs_external_test/'
-dir_externaltestmask = 'data/masks_external_test/'
-
-
-
-dir_checkpoint = 'checkpoints2/'
 
 def train_net(net,
               device,
               epochs=250,
               batch_size=4,
               lr=0.0001,
-              val_percent=0.2,
               save_cp=True,
-              img_scale=1):
+              args=None,
+              input_path=None):
 
-    dataset = BasicDataset(dir_img, dir_mask, img_scale,'train')
-    dataval = BasicDataset(dir_valimg, dir_valmask, img_scale,'val')
-    datatest = BasicDataset(dir_testimg, dir_testmask, img_scale, 'test')
-    dataexternaltest = BasicDataset(dir_externaltestimg, dir_externaltestmask, img_scale, 'test')
+    #assign image path
+    dir_img = input_path.dir_img
+    dir_mask = input_path.dir_mask
+    dir_valimg = input_path.dir_valimg
+    dir_valmask = input_path.dir_valmask
+    dir_testimg = input_path.dir_testimg
+    dir_testmask = input_path.dir_testmask
+    dir_externaltestimg = input_path.dir_externaltestimg
+    dir_externaltestmask = input_path.dir_externaltestmask
+
+    #assign experimental options
+    exp_name = args.expname
+    img_scale = args.scale
+    color_map = args.colormap
+
+    dir_checkpoint = os.path.join(input_path.dir_checkpoint, exp_name)
+
+    dataset = BasicDataset(dir_img, dir_mask, img_scale,color_map,'train')
+    dataval = BasicDataset(dir_valimg, dir_valmask, img_scale,color_map,'val')
+    datatest = BasicDataset(dir_testimg, dir_testmask, img_scale,color_map, 'test')
+    dataexternaltest = BasicDataset(dir_externaltestimg, dir_externaltestmask, img_scale,color_map, 'test')
 
     # yuankai change it to automated
     # direct sizes of each training. 
@@ -117,6 +139,7 @@ def train_net(net,
         Checkpoints:     {save_cp}
         Device:          {device.type}
         Images scaling:  {img_scale}
+        Color map:       {color_map}
     ''')
 
     #yuankai change the optimizer to Adam
@@ -205,7 +228,13 @@ def train_net(net,
             writer.add_images('masks/pred', masks_pred.max(dim=1)[1].unsqueeze(1), global_step)
             # writer.add_images('masks/pred', torch.sigmoid(masks_pred) > 0.5, global_step)
 
-        if save_cp and (epoch + 1) % 10 == 0:
+        if not os.path.exists(dir_checkpoint):
+            os.makedirs(dir_checkpoint)
+
+        csv_file_name = os.path.join(dir_checkpoint, '%s_result_log.csv' % exp_name)
+        convert_result_to_csv([epoch, val_score, test_score, external_test_score], csv_file_name)
+
+        if save_cp and (epoch + 1) % 5 == 0:
             try:
                 os.mkdir(dir_checkpoint)
                 logging.info('Created checkpoint directory')
@@ -218,28 +247,40 @@ def train_net(net,
     writer.close()
 
 
-def get_args():
-    parser = argparse.ArgumentParser(description='Train the UNet on images and target masks',
-                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-e', '--epochs', metavar='E', type=int, default=250,
-                        help='Number of epochs', dest='epochs')
-    parser.add_argument('-b', '--batch-size', metavar='B', type=int, nargs='?', default=4,
-                        help='Batch size', dest='batchsize')
-    parser.add_argument('-l', '--learning-rate', metavar='LR', type=float, nargs='?', default=0.0001,
-                        help='Learning rate', dest='lr')
-    parser.add_argument('-f', '--load', dest='load', type=str, default=False,
-                        help='Load model from a .pth file')
-    parser.add_argument('-s', '--scale', dest='scale', type=float, default=1,
-                        help='Downscaling factor of the images')
-    parser.add_argument('-v', '--validation', dest='val', type=float, default=10.0,
-                        help='Percent of the data that is used as validation (0-100)')
-
-    return parser.parse_args()
-
-
 if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', default='UNet_exp0.yml', help='config file')
+
+
+    opt = parser.parse_args()
+    config_file = os.path.join('config', opt.config)
+
+    cfg = cfg_from_file(config_file)
+
+    input_path = edict()
+    input_path.dir_img = cfg.INPUT.DIR_IMG
+    input_path.dir_mask = cfg.INPUT.DIR_MASK
+    input_path.dir_valimg = cfg.INPUT.DIR_VALIMG
+    input_path.dir_valmask = cfg.INPUT.DIR_VALMASK
+    input_path.dir_testimg = cfg.INPUT.DIR_TESTIMG
+    input_path.dir_testmask = cfg.INPUT.DIR_TESTMASK
+    input_path.dir_externaltestimg = cfg.INPUT.DIR_EXTTESTIMG
+    input_path.dir_externaltestmask = cfg.INPUT.DIR_EXTTESTMASK
+    input_path.dir_checkpoint = cfg.INPUT.DIR_CHECKPOINT
+
+    args = edict()
+    args.epochs = cfg.ARGS.EPOCHS
+    args.batchsize = cfg.ARGS.BATCH_SIZE
+    args.lr = cfg.ARGS.LR
+    args.load_pth = cfg.ARGS.LOAD_PTH
+
+    args.expname = cfg.EXP_NAME
+    args.scale = cfg.EXP.SCALE
+    args.colormap = cfg.EXP.COLORMAP
+
+
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    args = get_args()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f'Using device {device}')
 
@@ -256,11 +297,11 @@ if __name__ == '__main__':
                  f'\t{net.n_classes} output channels (classes)\n'
                  f'\t{"Bilinear" if net.bilinear else "Dilated conv"} upscaling')
 
-    if args.load:
+    if args.load_pth:
         net.load_state_dict(
-            torch.load(args.load, map_location=device)
+            torch.load(args.load_pth, map_location=device)
         )
-        logging.info(f'Model loaded from {args.load}')
+        logging.info(f'Model loaded from {args.load_pth}')
 
     net.to(device=device)
     # faster convolutions, but more memory
@@ -272,8 +313,10 @@ if __name__ == '__main__':
                   batch_size=args.batchsize,
                   lr=args.lr,
                   device=device,
-                  img_scale=args.scale,
-                  val_percent=args.val / 100)
+                  args =args,
+                  input_path=input_path)
+
+
     except KeyboardInterrupt:
         torch.save(net.state_dict(), 'INTERRUPTED.pth')
         logging.info('Saved interrupt')

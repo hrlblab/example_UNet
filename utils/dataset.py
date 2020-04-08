@@ -10,11 +10,12 @@ import imgaug.augmenters as iaa
 import random
 
 class BasicDataset(Dataset):
-    def __init__(self, imgs_dir, masks_dir, scale=1, split='train'):
+    def __init__(self, imgs_dir, masks_dir, scale=1, color_map='RGB', split='train'):
         self.imgs_dir = imgs_dir
         self.masks_dir = masks_dir
         self.scale = scale
         self.split = split
+        self.color_map = color_map
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
 
         self.ids = [splitext(file)[0] for file in listdir(imgs_dir)
@@ -49,38 +50,39 @@ class BasicDataset(Dataset):
         input_mask = np.expand_dims(pil_mask, axis=0)
         input_mask = np.expand_dims(input_mask, axis=3)
 
-        if self.split == 'train':
+        prob = random.uniform(0, 1)
+        if self.split == 'train' and prob > 0.5:# we do augmentation in 50% of the cases
+            seq = iaa.Sequential([
+                iaa.ChangeColorspace(from_colorspace="RGB", to_colorspace=self.color_map),
+                iaa.ChannelShuffle(0.35),
+                # iaa.Cutout(nb_iterations=(1, 5), size=0.1, squared=False, fill_mode="constant", cval=0),
+                # iaa.CoarseDropout((0.0, 0.05), size_percent=(0.02, 0.25)),
+                # iaa.MultiplyAndAddToBrightness(mul=(0.5, 1.5), add=(-30, 30)),
+                # iaa.MultiplyHueAndSaturation((0.5, 1.5), per_channel=True),
+                # iaa.GammaContrast((0.5, 2.0)),
+                iaa.Affine(translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)}),
+                iaa.Affine(rotate=(-180, 180)),
+                iaa.Affine(shear=(-16, 16)),
+                iaa.Fliplr(0.5),
+                iaa.GaussianBlur(sigma=(0, 3.0))
+            ])
+            images_aug, segmaps_aug = seq(images=input_img, segmentation_maps=input_mask)
 
-            prob = random.uniform(0, 1)
-            if prob > 0.5: # we do augmentation in 50% of the cases
-                seq = iaa.Sequential([
-                    iaa.ChannelShuffle(0.35),
-                    # iaa.Cutout(nb_iterations=(1, 5), size=0.1, squared=False, fill_mode="constant", cval=0),
-                    # iaa.CoarseDropout((0.0, 0.05), size_percent=(0.02, 0.25)),
-                    # iaa.MultiplyAndAddToBrightness(mul=(0.5, 1.5), add=(-30, 30)),
-                    # iaa.MultiplyHueAndSaturation((0.5, 1.5), per_channel=True),
-                    # iaa.GammaContrast((0.5, 2.0)),
-                    iaa.Affine(translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)}),
-                    iaa.Affine(rotate=(-180, 180)),
-                    iaa.Affine(shear=(-16, 16)),
-                    iaa.Fliplr(0.5),
-                    iaa.GaussianBlur(sigma=(0, 3.0))
-                ])
-                images_aug, segmaps_aug = seq(images=input_img, segmentation_maps=input_mask)
+            # if we would like to see the data augmentation
+            # segmaps_aug = np.concatenate((segmaps_aug,segmaps_aug,segmaps_aug), 3)
+            # seq.show_grid([images_aug[0], segmaps_aug[0]*255], cols=16, rows=8)
 
-                # if we would like to see the data augmentation
-                # segmaps_aug = np.concatenate((segmaps_aug,segmaps_aug,segmaps_aug), 3)
-                # seq.show_grid([images_aug[0], segmaps_aug[0]*255], cols=16, rows=8)
-
-                output_img = np.transpose(images_aug[0], (2, 0, 1))
-                output_mask = np.transpose(segmaps_aug[0], (2, 0, 1))
-            else:
-                output_img = np.transpose(input_img[0], (2, 0, 1))
-                output_mask = np.transpose(input_mask[0], (2, 0, 1))
-
+            output_img = np.transpose(images_aug[0], (2, 0, 1))
+            output_mask = np.transpose(segmaps_aug[0], (2, 0, 1))
         else:
-            output_img = np.transpose(input_img[0], (2, 0, 1))
-            output_mask = np.transpose(input_mask[0], (2, 0, 1))
+            seq = iaa.Sequential([
+                iaa.ChangeColorspace(from_colorspace="RGB", to_colorspace=self.color_map),
+            ])
+            images_aug, segmaps_aug = seq(images=input_img, segmentation_maps=input_mask)
+            output_img = np.transpose(images_aug[0], (2, 0, 1))
+            output_mask = np.transpose(segmaps_aug[0], (2, 0, 1))
+
+
 
         return output_img, output_mask
 
